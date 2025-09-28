@@ -2,7 +2,7 @@
    
    ![Python](https://img.shields.io/badge/python-3.9-blue.svg)
    ![PyTorch](https://img.shields.io/badge/pytorch-2.0-red.svg)
-   ![License:MIT](https://img.shields.io/badge/license-MIT-green.svg)
+   ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
    
    A **3DOF/6DOF flight dynamics model** with environmental, thermodynamic, and aerodynamic modeling, enhanced with a **PyTorch MLP** for data-driven predictions. This educational project focuses on realistic flight simulation and neural network integration.
    
@@ -38,7 +38,7 @@
    
    ### 2. Generate Data & Train
    ```python
-   from flight_dynamics_model import FlightDynamicsModel
+   from 3DOF_MODEL import FlightDynamicsModel
    
    # Initialize and generate data
    fdm = FlightDynamicsModel(n_samples=5000)
