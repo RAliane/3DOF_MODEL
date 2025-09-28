@@ -217,87 +217,138 @@ class Propulsion:
         self.total_mass = self.empty_weight + self.fuel_weight
         return self.total_mass
 
-# Generate synthetic data for flight dynamics
-n_samples = 10000
-n_features = 5  # altitude, velocity, angle of attack, throttle, mass
-noise = 0.1
+# --- New: FlightDynamicsModel Class ---
+class FlightDynamicsModel:
+    """Encapsulates data generation, MLP training, and visualization."""
 
-# Generate input features (X) and target outputs (y)
-X, y = make_regression(
-    n_samples=n_samples,
-    n_features=n_features,
-    noise=noise,
-    random_state=42,
-)
+    def __init__(self, n_samples=10000, test_size=0.2, random_state=42):
+        self.n_samples = n_samples
+        self.test_size = test_size
+        self.random_state = random_state
+        self.model = None
+        self.X_train = None
+        self.X_test = None
+        self.y_train = None
+        self.y_test = None
 
-# Customize the dataset to match your problem
-# For example, scale the features to realistic ranges
-X[:, 0] = X[:, 0] * 10000  # Altitude: 0 to 10,000 meters
-X[:, 1] = X[:, 1] * 300    # Velocity: 0 to 300 m/s
-X[:, 2] = X[:, 2] * 0.5    # Angle of attack: -0.5 to 0.5 radians
-X[:, 3] = (X[:, 3] + 1) / 2  # Throttle: 0 to 1
-X[:, 4] = X[:, 4] * 50000 + 50000  # Mass: 50,000 to 100,000 kg
+    def generate_data(self):
+        """Generate realistic flight data using Environment and Aerodynamics."""
+        X = []
+        y = []
+        env = Environment()
+        propulsion = Propulsion(
+            engine_type="turbofan",
+            num_engines=2,
+            max_thrust_per_engine=140000,
+            specific_fuel_consumption=0.00005,
+            empty_weight=50000,
+            fuel_weight=20000,
+        )
+        aero = Aerodynamics(
+            wing_area=20,
+            aspect_ratio=8,
+            oswald_efficiency=0.8,
+            Cd0=0.02,
+            Cl=0.8,
+            propulsion=propulsion,
+        )
 
-# Customize the target outputs (e.g., lift, drag, thrust)
-y = np.column_stack([
-    y * 100000,  # Lift: scale to realistic range
-    y * 50000,   # Drag: scale to realistic range
-    y * 200000,  # Thrust: scale to realistic range
-])
+        for _ in range(self.n_samples):
+            # Random inputs
+            altitude = np.random.uniform(0, 10000)
+            velocity = np.random.uniform(50, 300)
+            angle_of_attack = np.random.uniform(-0.1, 0.5)
+            throttle = np.random.uniform(0.5, 1.0)
 
-print("Input features shape:", X.shape)
-print("Target outputs shape:", y.shape)
+            # Create vectors
+            position = Vector.position_vector(0, 0, -altitude)
+            velocity_vec = Vector.velocity_vector(velocity, 0, 0)
 
-# Convert data to PyTorch tensors
-X_tensor = torch.tensor(X, dtype=torch.float32)
-y_tensor = torch.tensor(y, dtype=torch.float32)
+            # Calculate outputs using your classes
+            q = env.dynamic_pressure(position, velocity_vec)
+            lift = aero.lift_force(velocity_vec, position, env)
+            drag = aero.total_drag_force(velocity_vec, position, env)
+            thrust = aero.thrust_force(Vector.position_vector(1, 0, 0), throttle)
+            fuel_flow = propulsion.fuel_flow_rate(thrust[0])
 
-# Create a dataset and dataloader
-dataset = TensorDataset(X_tensor, y_tensor)
-dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+            X.append([altitude, velocity, angle_of_attack, throttle])
+            y.append([lift[0], drag[0], thrust[0], fuel_flow])
 
-# Define the MLP class
-class FlightDynamicsMLP(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super(FlightDynamicsMLP, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, output_size)
+        X = np.array(X)
+        y = np.array(y)
+        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+            X, y, test_size=self.test_size, random_state=self.random_state
+        )
+        return self.X_train, self.X_test, self.y_train, self.y_test
 
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        x = self.relu(x)
-        x = self.fc3(x)
-        return x
+    def train_mlp(self, hidden_layers=[128, 64, 32], dropout=0.2, lr=0.001, epochs=100):
+        """Train an MLP with dropout and batch normalization."""
+        input_size = self.X_train.shape[1]
+        output_size = self.y_train.shape[1]
 
-# Initialize the MLP
-input_size = X.shape[1]
-hidden_size = 64
-output_size = y.shape[1]
-model = FlightDynamicsMLP(input_size, hidden_size, output_size)
+        class MLP(nn.Module):
+            def __init__(self):
+                super().__init__()
+                layers = []
+                prev_size = input_size
+                for i, hidden_size in enumerate(hidden_layers):
+                    layers.append(nn.Linear(prev_size, hidden_size))
+                    layers.append(nn.BatchNorm1d(hidden_size))
+                    layers.append(nn.ReLU())
+                    layers.append(nn.Dropout(dropout))
+                    prev_size = hidden_size
+                layers.append(nn.Linear(prev_size, output_size))
+                self.net = nn.Sequential(*layers)
 
-# Define loss and optimizer
-criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+            def forward(self, x):
+                return self.net(x)
 
-# Training loop
-num_epochs = 100
-for epoch in range(num_epochs):
-    for batch_X, batch_y in dataloader:
-        # Forward pass
-        outputs = model(batch_X)
-        loss = criterion(outputs, batch_y)
+        self.model = MLP()
+        criterion = nn.MSELoss()
+        optimizer = optim.Adam(self.model.parameters(), lr=lr)
 
-        # Backward pass and optimization
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        # Convert data to tensors
+        X_train_tensor = torch.FloatTensor(self.X_train)
+        y_train_tensor = torch.FloatTensor(self.y_train)
+        train_data = TensorDataset(X_train_tensor, y_train_tensor)
+        train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
 
-    if (epoch + 1) % 10 == 0:
-        print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}")
+        # Training loop
+        for epoch in range(epochs):
+            for inputs, targets in train_loader:
+                optimizer.zero_grad()
+                outputs = self.model(inputs)
+                loss = criterion(outputs, targets)
+                loss.backward()
+                optimizer.step()
+            if (epoch + 1) % 10 == 0:
+                print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss.item():.4f}")
 
-# Save the trained model
-torch.save(model.state_dict(), "flight_dynamics_mlp.pth")
+    def visualize_results(self):
+        """Plot predictions vs. ground truth."""
+        if self.model is None:
+            raise ValueError("Model not trained yet. Call train_mlp() first.")
+
+        X_test_tensor = torch.FloatTensor(self.X_test)
+        with torch.no_grad():
+            y_pred = self.model(X_test_tensor).numpy()
+
+        plt.figure(figsize=(12, 8))
+        labels = ["Lift", "Drag", "Thrust", "Fuel Flow"]
+        for i in range(self.y_test.shape[1]):
+            plt.subplot(2, 2, i + 1)
+            plt.scatter(self.y_test[:, i], y_pred[:, i], alpha=0.5)
+            plt.plot([min(self.y_test[:, i]), max(self.y_test[:, i])],
+                     [min(self.y_test[:, i]), max(self.y_test[:, i])], "r--")
+            plt.xlabel(f"True {labels[i]}")
+            plt.ylabel(f"Predicted {labels[i]}")
+            plt.title(f"{labels[i]}: True vs. Predicted")
+        plt.tight_layout()
+        plt.show()
+
+# --- Usage Example ---
+if __name__ == "__main__":
+    fdm = FlightDynamicsModel(n_samples=5000)
+    fdm.generate_data()
+    fdm.train_mlp(hidden_layers=[128, 64, 32], dropout=0.2, lr=0.001, epochs=50)
+    fdm.visualize_results()
