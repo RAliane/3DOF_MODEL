@@ -1,30 +1,89 @@
-# Flight Dynamics Model with Data-Driven Aerodynamics
-
-A **3DOF flight dynamics model** with environmental, thermodynamic, and aerodynamic modeling, now enhanced with a **data-driven MLP** trained on synthetic flight data.
-
----
-
-## Features
-- **Physics-Based Simulation**: Uses ISA atmosphere, NED coordinates, and aerodynamic forces (lift, drag, thrust).
-- **Data-Driven MLP**: PyTorch neural network trained on synthetic flight data for real-time predictions.
-- **Realistic Data Generation**: Leverages `Environment` and `Aerodynamics` classes to create physically accurate datasets.
-- **Visualization**: Plots predictions vs. ground truth for lift, drag, thrust, and fuel flow.
-
----
-
-## Key Classes
-| Class | Purpose |
-|-------|---------|
-| `Vector` | Handles 3D vectors (position, velocity, acceleration) in NED coordinates. |
-| `Environment` | Models atmospheric conditions (density, pressure, temperature) using ISA. |
-| `Aerodynamics` | Computes lift, drag, and thrust forces. |
-| `Propulsion` | Simulates engine performance, fuel consumption, and mass updates. |
-| `FlightDynamicsModel` | Encapsulates data generation, MLP training, and visualization. |
-
----
-
-## Data-Driven Workflow
-1. **Generate Synthetic Data**:
+   # Aerospace Flight Dynamics Model with Data-Driven MLP
+   
+   ![Python](https://img.shields.io/badge/python-3.9-blue.svg)
+   ![PyTorch](https://img.shields.io/badge/pytorch-2.0-red.svg)
+   ![License:MIT](https://img.shields.io/badge/license-MIT-green.svg)
+   
+   A **3DOF/6DOF flight dynamics model** with environmental, thermodynamic, and aerodynamic modeling, enhanced with a **PyTorch MLP** for data-driven predictions. This educational project focuses on realistic flight simulation and neural network integration.
+   
+   ---
+   
+   ## Features
+   - **3DOF/6DOF Flight Dynamics**: Simulates aircraft motion using NED coordinates
+   - **Data-Driven MLP**: PyTorch neural network trained on synthetic flight data
+   - **Realistic Data Generation**: Uses ISA atmosphere and aerodynamic models
+   - **Visualization**: Plots predictions vs ground truth for lift, drag, thrust
+   
+   ---
+   
+   ## Core Components
+   | Class | Purpose |
+   |-------|---------|
+   | `Vector` | 3D vector operations in NED coordinates |
+   | `Environment` | ISA atmospheric modeling |
+   | `Aerodynamics` | Lift/drag/thrust calculations |
+   | `Propulsion` | Engine performance and fuel consumption |
+   | `FlightDynamicsModel` | Data generation, MLP training, visualization |
+   
+   ---
+   
+   ## Quick Start
+   
+   ### 1. Install
+   ```bash
+   git clone https://github.com/RAliane/3DOF_MODEL.git
+   cd 3DOF_MODEL
+   pip install -r requirements.txt
+   ```
+   
+   ### 2. Generate Data & Train
    ```python
+   from flight_dynamics_model import FlightDynamicsModel
+   
+   # Initialize and generate data
    fdm = FlightDynamicsModel(n_samples=5000)
-   fdm.generate_data()  # Uses Environment/Aerodynamics for realism
+   fdm.generate_data()
+   
+   # Train MLP
+   fdm.train_mlp(hidden_layers=[128, 64, 32], dropout=0.2, lr=0.001, epochs=50)
+   
+   # Visualize results
+   fdm.visualize_results()
+   ```
+   
+   ### 3. Example Prediction
+   ```python
+   import numpy as np
+   import torch
+   
+   # Input: [altitude, velocity, angle_of_attack, throttle]
+   new_input = np.array([[8000, 250, 0.2, 0.8]])
+   new_input_tensor = torch.FloatTensor(new_input)
+   
+   with torch.no_grad():
+       lift, drag, thrust, fuel_flow = fdm.model(new_input_tensor).numpy()[0]
+   
+   print(f"Predictions:\nLift: {lift:.2f}N\nDrag: {drag:.2f}N\nThrust: {thrust:.2f}N\nFuel Flow: {fuel_flow:.2f}kg/s")
+   ```
+   
+   ---
+   
+   ## Example Results
+   ![Lift Prediction](assets/lift_plot.png)
+   ![Drag Prediction](assets/drag_plot.png)
+   
+   *Note: Add your plots to the assets/ folder*
+   
+   ---
+   
+   ## Future Work
+   - [ ] 6DOF expansion with roll/pitch/yaw
+   - [ ] Advanced aerodynamics with stability derivatives
+   - [ ] Time-series models for trajectory prediction
+   - [ ] Real-world data validation
+   
+   ---
+   Apache 2.0 License © Rayan Aliane
+   ```
+   
+   
