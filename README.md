@@ -1,9 +1,12 @@
    # Aerospace Flight Dynamics Model with Data-Driven MLP
    
-   ![Python](https://img.shields.io/badge/python-3.9-blue.svg)
-   ![PyTorch](https://img.shields.io/badge/pytorch-2.0-red.svg)
-   ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-   
+![Python](https://img.shields.io/badge/Python-3.9-green.svg?style=flat-square)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.0-green.svg?style=flat-square)
+![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-green.svg?style=flat-square)
+![TensorFlow.js](https://img.shields.io/badge/TensorFlow.js-Latest-yellow.svg?style=flat-square)
+![JavaScript](https://img.shields.io/badge/JavaScript-ES6+-yellow.svg?style=flat-square)
+![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)
+
    A **3DOF/6DOF flight dynamics model** with environmental, thermodynamic, and aerodynamic modeling, enhanced with a **PyTorch MLP** for data-driven predictions. This educational project focuses on realistic flight simulation and neural network integration.
    
    ---
