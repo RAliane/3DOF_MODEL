@@ -13,7 +13,8 @@
    
    ## Features
    - **3DOF/6DOF Flight Dynamics**: Simulates aircraft motion using NED coordinates
-   - **Data-Driven MLP**: PyTorch neural network trained on synthetic flight data
+   - **Data-Driven MLP**: Neural network trained on synthetic flight data (PyTorch, TensorFlow 2.x)
+   - **TensorFlow.js Integration**: Exploring browser-based inference and training
    - **Realistic Data Generation**: Uses ISA atmosphere and aerodynamic models
    - **Visualization**: Plots predictions vs ground truth for lift, drag, thrust
    
@@ -68,7 +69,14 @@
    
    print(f"Predictions:\nLift: {lift:.2f}N\nDrag: {drag:.2f}N\nThrust: {thrust:.2f}N\nFuel Flow: {fuel_flow:.2f}kg/s")
    ```
-   
+TensorFlow & TensorFlow.js Support (WIP)
+
+   The project is expanding to include support for:
+      - **TensorFlow (Python): Migration path for PyTorch models to TensorFlow 2.x
+      - **TensorFlow.js: Browser-based model inference and interactive visualization
+      
+   Stay tuned for tensorflow_model.py and tfjs/ directory updates
+      
    ---
    
    ## Example Results
@@ -83,6 +91,7 @@
    - [ ] 6DOF expansion with roll/pitch/yaw
    - [ ] Advanced aerodynamics with stability derivatives
    - [ ] Time-series models for trajectory prediction
+   - [ ] TensorFlow model support (Python + TF.js)
    - [ ] Real-world data validation
    
    ---
