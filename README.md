@@ -70,11 +70,11 @@
    print(f"Predictions:\nLift: {lift:.2f}N\nDrag: {drag:.2f}N\nThrust: {thrust:.2f}N\nFuel Flow: {fuel_flow:.2f}kg/s")
    ```
    ---
-TensorFlow & TensorFlow.js Support (WIP)
+### TensorFlow & TensorFlow.js Support (WIP)
 
    The project is expanding to include support for:
-      - **TensorFlow (Python): Migration path for PyTorch models to TensorFlow 2.x
-      - **TensorFlow.js: Browser-based model inference and interactive visualization
+   - **TensorFlow (Python): Migration path for PyTorch models to TensorFlow 2.x
+   - **TensorFlow.js: Browser-based model inference and interactive visualization
       
    Stay tuned for tensorflow_model.py and tfjs/ directory updates
       
