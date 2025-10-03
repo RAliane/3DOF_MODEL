@@ -73,8 +73,8 @@
 ### TensorFlow & TensorFlow.js Support (WIP)
 
    The project is expanding to include support for:
-   - **TensorFlow (Python): Migration path for PyTorch models to TensorFlow 2.x
-   - **TensorFlow.js: Browser-based model inference and interactive visualization
+   - **TensorFlow (Python)**: Migration path for PyTorch models to TensorFlow 2.x
+   - **TensorFlow.js**: Browser-based model inference and interactive visualization
       
    Stay tuned for tensorflow_model.py and tfjs/ directory updates
       
