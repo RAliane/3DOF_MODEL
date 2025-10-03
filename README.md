@@ -69,6 +69,7 @@
    
    print(f"Predictions:\nLift: {lift:.2f}N\nDrag: {drag:.2f}N\nThrust: {thrust:.2f}N\nFuel Flow: {fuel_flow:.2f}kg/s")
    ```
+   ---
 TensorFlow & TensorFlow.js Support (WIP)
 
    The project is expanding to include support for:
