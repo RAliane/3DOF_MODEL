@@ -1,0 +1,354 @@
+#include <SPI.h>
+#include <Wire.h>
+#include "WiFi.h"
+#include <AsyncUDP.h>
+#include <Arduino_JSON.h>
+#include <math.h>
+
+// ============================================================================
+// INCLUDES & GLOBAL CONFIGURATION
+// ============================================================================
+
+const char *ssid = "TheOracle";
+const char *password = "D0y0usp3AK0R4CL353";
+
+// TensorFlow Lite Micro (if using on-device ML)
+// #include "tensorflow/lite/micro/all_ops_resolver.h"
+// #include "tensorflow/lite/micro/micro_interpreter.h"
+// #include "tensorflow/lite/schema/schema_generated.h"
+
+// ============================================================================
+// LQRI-PID CONTROLLER STATE & STRUCTURES
+// ============================================================================
+
+typedef struct {
+    float altitude;
+    float airspeed;
+    float pitch;
+    float roll;
+    float yaw;
+    float pitch_rate;
+    float roll_rate;
+    float yaw_rate;
+} ControlState;
+
+typedef struct {
+    float throttle;
+    float elevator;
+    float aileron;
+    float rudder;
+} ControlOutput;
+
+typedef struct {
+    float Kp, Ki, Kd;
+} PIDGains;
+
+// ============================================================================
+// LQRI-PID CONTROLLER CLASS
+// ============================================================================
+
+class LQRIPIDController {
+private:
+    float dt;
+    
+    // Setpoints
+    float altitude_setpoint = 1000.0;
+    float airspeed_setpoint = 100.0;
+    float pitch_setpoint = 0.0;
+    
+    // PID Gains
+    PIDGains altitude_gains = {0.01, 0.001, 0.002};
+    PIDGains airspeed_gains = {0.05, 0.002, 0.01};
+    PIDGains pitch_gains = {0.5, 0.05, 0.1};
+    PIDGains roll_gains = {0.4, 0.02, 0.08};
+    PIDGains yaw_gains = {0.3, 0.01, 0.05};
+    
+    // Error accumulators
+    float alt_error_sum = 0.0;
+    float airspeed_error_sum = 0.0;
+    float pitch_error_sum = 0.0;
+    float roll_error_sum = 0.0;
+    float yaw_error_sum = 0.0;
+    
+    // Previous errors for derivative
+    float prev_alt_error = 0.0;
+    float prev_airspeed_error = 0.0;
+    float prev_pitch_error = 0.0;
+    float prev_roll_error = 0.0;
+    float prev_yaw_error = 0.0;
+    
+    // Output limits
+    const float THROTTLE_MIN = 0.0, THROTTLE_MAX = 1.0;
+    const float SURFACE_MIN = -1.0, SURFACE_MAX = 1.0;
+
+public:
+    LQRIPIDController(float timestep) : dt(timestep) {}
+    
+    void setSetpoints(float alt, float spd, float pitch = 0.0) {
+        altitude_setpoint = alt;
+        airspeed_setpoint = spd;
+        pitch_setpoint = pitch;
+    }
+    
+    float clamp(float val, float min_val, float max_val) {
+        if (val < min_val) return min_val;
+        if (val > max_val) return max_val;
+        return val;
+    }
+    
+    float computePID(float error, float &error_sum, float &prev_error, 
+                     PIDGains gains) {
+        // P term
+        float p = gains.Kp * error;
+        
+        // I term
+        error_sum += error * dt;
+        float i = gains.Ki * error_sum;
+        
+        // D term
+        float d = gains.Kd * (error - prev_error) / dt;
+        prev_error = error;
+        
+        return p + i + d;
+    }
+    
+    ControlOutput compute(ControlState state) {
+        // Compute errors
+        float alt_error = altitude_setpoint - state.altitude;
+        float spd_error = airspeed_setpoint - state.airspeed;
+        float pitch_error = pitch_setpoint - state.pitch;
+        float roll_error = 0.0 - state.roll;
+        float yaw_error = 0.0 - state.yaw;
+        
+        // Compute PID terms
+        float alt_pid = computePID(alt_error, alt_error_sum, prev_alt_error, 
+                                   altitude_gains);
+        float spd_pid = computePID(spd_error, airspeed_error_sum, 
+                                   prev_airspeed_error, airspeed_gains);
+        float pitch_pid = computePID(pitch_error, pitch_error_sum, 
+                                     prev_pitch_error, pitch_gains);
+        float roll_pid = computePID(roll_error, roll_error_sum, 
+                                    prev_roll_error, roll_gains);
+        float yaw_pid = computePID(yaw_error, yaw_error_sum, 
+                                   prev_yaw_error, yaw_gains);
+        
+        // Combine (currently using PID only; NN feedforward would integrate here)
+        float throttle = (alt_pid + spd_pid) * 0.5;
+        float elevator = pitch_pid;
+        float aileron = roll_pid;
+        float rudder = yaw_pid;
+        
+        // Apply limits
+        throttle = clamp(throttle, THROTTLE_MIN, THROTTLE_MAX);
+        elevator = clamp(elevator, SURFACE_MIN, SURFACE_MAX);
+        aileron = clamp(aileron, SURFACE_MIN, SURFACE_MAX);
+        rudder = clamp(rudder, SURFACE_MIN, SURFACE_MAX);
+        
+        return {throttle, elevator, aileron, rudder};
+    }
+    
+    void updateGains(const char* control_type, float kp, float ki, float kd) {
+        if (strcmp(control_type, "altitude") == 0) {
+            altitude_gains = {kp, ki, kd};
+        } else if (strcmp(control_type, "pitch") == 0) {
+            pitch_gains = {kp, ki, kd};
+        } else if (strcmp(control_type, "roll") == 0) {
+            roll_gains = {kp, ki, kd};
+        }
+    }
+};
+
+// ============================================================================
+// 6DOF FLIGHT DYNAMICS (EXISTING CODE)
+// ============================================================================
+
+class FlightDynamics6DoF {
+private:
+    // State vectors
+    double position[3] = {0.0, 0.0, 0.0};
+    double velocity[3] = {0.0, 0.0, 0.0};
+    double orientation[4] = {1.0, 0.0, 0.0, 0.0};  // Quaternion
+    double angular_velocity[3] = {0.0, 0.0, 0.0};
+    
+    // Aircraft parameters
+    double mass = 670.0;
+    double wing_area = 25.0;
+    double thrust = 0.0;
+    
+public:
+    void updateDynamics(float dt, ControlOutput control, 
+                       double air_density = 1.225) {
+        // Update thrust
+        thrust = control.throttle * 50000.0;
+        
+        // Calculate airspeed
+        double airspeed = sqrt(velocity[0]*velocity[0] + 
+                              velocity[1]*velocity[1] + 
+                              velocity[2]*velocity[2]);
+        
+        // Calculate lift and drag
+        double dynamic_pressure = 0.5 * air_density * airspeed * airspeed;
+        double lift = dynamic_pressure * 0.4 * wing_area;  // CL = 0.4
+        double drag = dynamic_pressure * 0.02 * wing_area;  // CD = 0.02
+        
+        // Net forces (simplified)
+        double net_x = thrust - drag;
+        double net_z = lift - (mass * 9.80665);  // lift - weight
+        
+        // Update velocity
+        velocity[0] += (net_x / mass) * dt;
+        velocity[2] += (net_z / mass) * dt;
+        
+        // Update position
+        position[0] += velocity[0] * dt;
+        position[2] += velocity[2] * dt;
+    }
+    
+    float getAltitude() { return -position[2]; }
+    float getAirspeed() {
+        return sqrt(velocity[0]*velocity[0] + 
+                   velocity[1]*velocity[1] + 
+                   velocity[2]*velocity[2]);
+    }
+    float getPitch() {
+        // Simplified: assume pitch from quaternion W component
+        return asin(2.0 * (orientation[0]*orientation[2] - 
+                          orientation[1]*orientation[3]));
+    }
+    float getRoll() {
+        return atan2(2.0 * (orientation[0]*orientation[1] + 
+                           orientation[2]*orientation[3]),
+                    1.0 - 2.0 * (orientation[1]*orientation[1] + 
+                                 orientation[2]*orientation[2]));
+    }
+    float getYaw() {
+        return atan2(2.0 * (orientation[0]*orientation[3] + 
+                           orientation[1]*orientation[2]),
+                    1.0 - 2.0 * (orientation[2]*orientation[2] + 
+                                 orientation[3]*orientation[3]));
+    }
+};
+
+// ============================================================================
+// GLOBAL OBJECTS
+// ============================================================================
+
+AsyncUDP udp;
+LQRIPIDController autopilot(0.01);  // 10ms timestep
+FlightDynamics6DoF flight_model;
+ControlState current_state = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
+unsigned long last_control_update = 0;
+const unsigned long CONTROL_PERIOD = 10;  // 10ms control loop
+unsigned long last_telemetry_time = 0;
+const unsigned long TELEMETRY_PERIOD = 100;  // 100ms telemetry
+
+// ============================================================================
+// SETUP
+// ============================================================================
+
+void setup() {
+    Serial.begin(115200);
+    delay(1000);
+    
+    Serial.println("\n\nESP32 6DoF with LQRI-PID Controller");
+    
+    // WiFi setup
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("\nWiFi Failed");
+        while(1) delay(1000);
+    }
+    
+    Serial.println("\nWiFi connected");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+    
+    // UDP setup
+    if (udp.connect(IPAddress(192, 168, 1, 100), 1234)) {
+        Serial.println("UDP connected");
+        udp.onPacket([](AsyncUDPPacket packet) {
+            // Handle incoming commands (setpoints, gains, etc.)
+            String data = "";
+            for (int i = 0; i < packet.length(); i++) {
+                data += (char)packet.data()[i];
+            }
+            
+            JSONVar command = JSON.parse(data);
+            if (JSON.typeof(command) != "undefined") {
+                if (command.hasOwnProperty("altitude_sp")) {
+                    float alt = (float)command["altitude_sp"];
+                    float spd = (float)command["airspeed_sp"];
+                    autopilot.setSetpoints(alt, spd);
+                    Serial.printf("New setpoints: Alt=%.1f, Spd=%.1f\n", alt, spd);
+                }
+            }
+        });
+    }
+    
+    // Initialize autopilot setpoints
+    autopilot.setSetpoints(500.0, 100.0);  // 500m altitude, 100 m/s airspeed
+    
+    Serial.println("System ready!");
+}
+
+// ============================================================================
+// MAIN LOOP
+// ============================================================================
+
+void loop() {
+    unsigned long now = millis();
+    
+    // Control loop (10ms)
+    if (now - last_control_update >= CONTROL_PERIOD) {
+        // Update current state from flight model
+        current_state.altitude = flight_model.getAltitude();
+        current_state.airspeed = flight_model.getAirspeed();
+        current_state.pitch = flight_model.getPitch();
+        current_state.roll = flight_model.getRoll();
+        current_state.yaw = flight_model.getYaw();
+        
+        // Compute control
+        ControlOutput control = autopilot.compute(current_state);
+        
+        // Update flight dynamics
+        flight_model.updateDynamics(CONTROL_PERIOD / 1000.0, control);
+        
+        last_control_update = now;
+    }
+    
+    // Telemetry transmission (100ms)
+    if (now - last_telemetry_time >= TELEMETRY_PERIOD) {
+        JSONVar telemetry;
+        telemetry["alt"] = current_state.altitude;
+        telemetry["spd"] = current_state.airspeed;
+        telemetry["pitch"] = current_state.pitch;
+        telemetry["roll"] = current_state.roll;
+        telemetry["yaw"] = current_state.yaw;
+        telemetry["throttle"] = flight_model.getThrustPercent();
+        
+        String json_str = JSON.stringify(telemetry);
+        udp.print(json_str);
+        
+        Serial.print("T: ");
+        Serial.print(millis()/1000.0, 1);
+        Serial.print("s | Alt: ");
+        Serial.print(current_state.altitude, 1);
+        Serial.print("m | Spd: ");
+        Serial.print(current_state.airspeed, 1);
+        Serial.println(" m/s");
+        
+        last_telemetry_time = now;
+    }
+    
+    delay(1);
+}
